@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Carte de France - Nuancier de Vert (Travaux)</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="https://unpkg.com/topojson@3"></script>
+
+    <style>
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background-color: #f8f9fa;
+            margin: 0;
+            padding: 20px;
+        }
+
+        h1 {
+            color: #2c3e50;
+        }
+
+        .legend-text {
+            font-size: 12px;
+            color: #555;
+            margin-top: 5px;
+        }
+
+        #map-container {
+            width: 100%;
+            max-width: 1000px;
+            height: 850px;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.1);
+            position: relative;
+        }
+
+        /* Style des départements */
+        .department {
+            stroke: #fff;
+            stroke-width: 0.8px;
+            transition: opacity 0.2s;
+        }
+
+        .department:hover {
+            opacity: 0.8;
+            stroke-width: 2px;
+            stroke: #333;
+            cursor: pointer;
+        }
+
+        /* Style des chiffres */
+        .label-travaux {
+            font-family: 'Arial', sans-serif;
+            font-size: 11px;
+            fill: #000;
+            text-anchor: middle;
+            dominant-baseline: central;
+            pointer-events: none;
+            font-weight: 700;
+            paint-order: stroke;
+            stroke: #fff;
+            stroke-width: 3px;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+
+        .tooltip {
+            position: absolute;
+            background: rgba(255, 255, 255, 0.95);
+            color: #333;
+            padding: 8px 12px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            pointer-events: none;
+            font-size: 13px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            display: none;
+            z-index: 10;
+        }
+        
+        /* --- CHANGEMENT ICI : Légende à gauche --- */
+        .legend-container {
+            position: absolute;
+            bottom: 30px;
+            left: 30px; /* <--- C'est ici que j'ai mis "left" au lieu de "right" */
+            background: rgba(255, 255, 255, 0.9);
+            padding: 10px;
+            border-radius: 5px;
+            box-shadow: 0 0 5px rgba(0,0,0,0.1);
+            border: 1px solid #eee;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Coût moyen des travaux par département</h1>
+    <p>Le vert le plus foncé indique le coût le plus faible.</p>
+    
+    <div id="map-container">
+        <div class="legend-container" id="legend"></div>
+    </div>
+    <div class="tooltip" id="tooltip"></div>
+
+    <script>
+        // ==========================================
+        // VOS DONNEES
+        // ==========================================
+        const dataTravaux = {
+          "01": 6223, "02": 13285, "04": 9087, "05": 6559, "06": 6977, 
+          "07": 9168, "10": 6140, "13": 7511, "14": 7453, "15": 5003, 
+          "16": 7011, "17": 8094, "18": 6789, "20": 6447, "2A": 6447, "2B": 6447,
+          "21": 8262, "23": 3962, "25": 9687, "26": 11705, "27": 8008, 
+          "28": 9141, "31": 8039, "33": 8785, "34": 10521, "36": 5450, 
+          "37": 10027, "38": 8087, "39": 7655, "40": 6213, "41": 7069, 
+          "42": 6203, "43": 9073, "44": 9056, "45": 8327, "46": 7725, 
+          "49": 8433, "50": 8830, "51": 9263, "52": 7399, "53": 7305, 
+          "54": 9472, "55": 8424, "56": 8660, "57": 9713, "58": 6125, 
+          "59": 8420, "60": 9473, "61": 6407, "62": 7965, "63": 7887, 
+          "64": 8243, "65": 8863, "66": 11090, "67": 10595, "68": 11527, 
+          "69": 10080, "70": 6979, "71": 7338, "72": 8060, "73": 10609, 
+          "74": 11200, "75": 14241, "76": 7935, "77": 11181, "78": 10731, 
+          "79": 7990, "80": 8572, "81": 7695, "82": 7821, "83": 10636, 
+          "84": 10452, "85": 6689, "86": 6602, "87": 6652, "88": 8097, 
+          "89": 7590, "90": 8272, "91": 9510, "92": 11753, "93": 11550, 
+          "94": 10332, "95": 10037
+        };
+
+        // --- Configuration ---
+        const width = 1000;
+        const height = 850;
+        
+        const values = Object.values(dataTravaux);
+        const minVal = Math.min(...values);
+        const maxVal = Math.max(...values);
+
+        // --- Echelle de couleur ---
+        // Max (Cher) -> Blanc/Clair
+        // Min (Pas cher) -> Vert Foncé
+        const colorScale = d3.scaleSequential()
+            .interpolator(d3.interpolateGreens) 
+            .domain([maxVal + 2000, minVal - 1000]); 
+
+        const svg = d3.select("#map-container").append("svg")
+            .attr("width", width)
+            .attr("height", height);
+
+        const projection = d3.geoConicConformal()
+            .center([2.454071, 46.279229])
+            .scale(4200)
+            .translate([width / 2, height / 2]);
+
+        const path = d3.geoPath().projection(projection);
+        const tooltip = d3.select("#tooltip");
+
+        d3.json("https://raw.githubusercontent.com/gregoiredavid/france-geojson/master/departements-version-simplifiee.geojson").then(geojson => {
+
+            // 1. Dessin de la carte
+            svg.selectAll("path")
+                .data(geojson.features)
+                .enter()
+                .append("path")
+                .attr("d", path)
+                .attr("class", "department")
+                .attr("fill", d => {
+                    const val = dataTravaux[d.properties.code];
+                    return val ? colorScale(val) : "#e0e0e0"; 
+                })
+                .on("mouseover", function(event, d) {
+                    const code = d.properties.code;
+                    const val = dataTravaux[code];
+                    const displayVal = val ? val.toLocaleString() + " €" : "Pas de données";
+                    tooltip.style("display", "block").html(`<strong>${d.properties.nom} (${code})</strong><br>Coût moyen: ${displayVal}`);
+                    d3.select(this).style("opacity", 1);
+                })
+                .on("mousemove", function(event) {
+                    tooltip.style("left", (event.pageX + 15) + "px").style("top", (event.pageY - 20) + "px");
+                })
+                .on("mouseout", function() {
+                    tooltip.style("display", "none");
+                    d3.select(this).style("opacity", null);
+                });
+
+            // 2. Chiffres
+            svg.selectAll("text")
+                .data(geojson.features)
+                .enter()
+                .append("text")
+                .attr("class", "label-travaux")
+                .attr("transform", function(d) {
+                    const centroid = path.centroid(d);
+                    if (d.properties.code === "75") return `translate(${centroid[0]},${centroid[1]})`;
+                    if (d.properties.code === "92") return `translate(${centroid[0]-6},${centroid[1]})`;
+                    if (d.properties.code === "93") return `translate(${centroid[0]+6},${centroid[1]})`;
+                    if (d.properties.code === "94") return `translate(${centroid[0]},${centroid[1]+6})`;
+                    return `translate(${centroid[0]},${centroid[1]})`;
+                })
+                .text(d => {
+                    const val = dataTravaux[d.properties.code];
+                    return val ? Math.round(val) : "";
+                });
+                
+            // 3. Légende
+            const legendW = 200, legendH = 10;
+            const legendSvg = d3.select("#legend").append("svg")
+                .attr("width", legendW + 40)
+                .attr("height", 50);
+                
+            const defs = legendSvg.append("defs");
+            const linearGradient = defs.append("linearGradient")
+                .attr("id", "linear-gradient");
+                
+            // Le dégradé va de gauche (0%) à droite (100%)
+            // A gauche (0%) : On veut la couleur du Max (Clair)
+            // A droite (100%) : On veut la couleur du Min (Foncé/Vert)
+            linearGradient.selectAll("stop")
+                .data(d3.range(0, 1.1, 0.1)) 
+                .enter().append("stop")
+                .attr("offset", d => d*100 + "%")
+                .attr("stop-color", d => colorScale( maxVal - d * (maxVal - minVal) )); 
+
+            legendSvg.append("rect")
+                .attr("width", legendW)
+                .attr("height", legendH)
+                .style("fill", "url(#linear-gradient)")
+                .attr("transform", "translate(10,10)");
+                
+            legendSvg.append("text").text(maxVal + " €").attr("x", 10).attr("y", 35).style("font-size", "10px");
+            legendSvg.append("text").text(minVal + " €").attr("x", legendW + 10).attr("y", 35).style("font-size", "10px").attr("text-anchor", "end");
+            
+            d3.select("#legend").append("div").attr("class", "legend-text").html("<strong>Plus cher</strong> (Clair) &rarr; <strong>Moins cher</strong> (Vert)");
+
+        });
+    </script>
+</body>
+</html>
